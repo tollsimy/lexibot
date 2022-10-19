@@ -9,7 +9,7 @@ from reverso_wrapped_api import *
 from gsheets_wrapped_api import *
 
 TOKEN = None
-with open("lexi_bot_token.txt") as f:
+with open("keys/lexibot_token.txt") as f:
     TOKEN = f.read().strip()
 
 try:
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # --------------------------------- Global vars ------------------------------ #
 
 sheet_link = None
+sheet_name = None
 target_lang = None
 mother_lang = None
 reverso = None
@@ -118,6 +119,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     #Set sheet link
     global sheet_link
+    global sheet_name
     global gsheet
 
     try:
@@ -136,44 +138,51 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.debug("/set_sheet: Invalid command")
         return -1
 
-    # try:
-    #     gsheet = Gsheet_Api("TODO")
-    #     logger.debug("Gsheet started")
-    # except:
-    #     logger.exception("Error while connecting to google sheet")
-    #     return -1
+    # Start gsheet
+    try:
+        gsheet = Gsheet_Api("keys/lexibot_gservice_account.json")
+        logger.debug("Gsheet service account authorized correctly")
+    except:
+        logger.exception("Error while connecting to google service account")
+        return -1
 
-    #TODO: add check for valid link
-    # if gsheet.is_a_g_sheet("url", arg) :
+    #TODO
+    if 1:
+        sheet_name = "LexiBot - learn new vocabularies"
+        sheet_link = gsheet.create_sheet(sheet_name)
+        logger.debug("Sheet created correctly")
+    else:
+        #TODO
+        pass
+
+    # if gsheet.is_a_g_sheet(title, sheet) :
     #     logger.debug("Sheet link is valid")
-    #     sheet_link=arg
-    #     await update.message.reply_text("Sheet link set to: " + sheet_link + "RETRIEVE NAME OF THE SHEET")
+    #     sheet=arg
+    #     await update.message.reply_text("Sheet link set to: " + sheet + "RETRIEVE NAME OF THE SHEET")
     # else:
     #     logger.debug("Sheet link not valid")
     #     await update.message.reply_text("This is not a link to a google sheet document, please try again")
     #     return -1
 
-    #Debug, remove it later
-
     return 0
 
 async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     #Reply with the translated the user message
-
     if(target_lang is None or mother_lang is None):
         await update.message.reply_text("Please set language with /set_lang")
         logger.debug("Language not set")
-        return
+        return -1
     elif (sheet_link is None):
         await update.message.reply_text("Please set google sheet link with /set_sheet")
         logger.debug("Sheet link not set")
-        return
+        return -1
     
     trad = reverso.get_separated_translations(update.message.text)
     logger.debug("Translation done")
-    # gsheet.write_on_sheet("url", "link", update.message.text, trad)
+    gsheet.write_on_sheet("title", sheet_name, update.message.text, trad)
     logger.debug("Written on sheet")
     await update.message.reply_text("Done! Translation: " + trad)
+    return 0
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Command not found, visit /help")
