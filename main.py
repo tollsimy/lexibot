@@ -150,6 +150,10 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if 1:
         sheet_name = "LexiBot - learn new vocabularies"
         sheet_link = gsheet.create_sheet(sheet_name)
+        sheet_link = gsheet.create_sheet(sheet_name)
+        sheet_link.share('yourmail@gmail.com',
+                         perm_type='user', role='writer')
+        logger.debug(sheet_link)
         logger.debug("Sheet created correctly")
     else:
         #TODO
