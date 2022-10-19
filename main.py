@@ -43,10 +43,12 @@ target_lang = None
 mother_lang = None
 reverso = None
 gsheet = None
+email = None
 
 # Conversation FSM states
 LANG_STATE = 0
 SHEET_STATE = 1
+EMAIL_STATE = 2
 
 # ----------------------------- Command Handlers ----------------------------- #
 
@@ -113,6 +115,34 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("Languages not found, visit /help")
         logger.debug("Languages not found")
         return -1
+    
+    return 0
+
+async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+
+    msg = update.message.text.lower()
+
+    try:
+        if("/set_email" in update.message.text):
+            email = msg.split("/set_email ")[1]
+        else:
+            email = msg
+        # If email is not gmail return fail
+        if "@gmail.com" not in email:
+            raise Exception
+        logger.debug("Inserted email is: " + email)
+    except:
+        # If we are here from the command handler, message is this one
+        if("/set_email" in update.message.text):
+            await update.message.reply_text("Invalid command, use /set_email [your_address@gmail.com]")
+        # If we are here from the conversation handler, message is different
+        else:
+            await update.message.reply_text("Invalid format, use [your_address@gmail.com]")
+        logger.debug("/set_email: Invalid command")
+        return -1
+
+    await update.message.reply_text("Email address set to: " + email)
+    logger.debug("Email valid")
     
     return 0
 
@@ -216,6 +246,14 @@ async def ask_sheet(update, context: ContextTypes.DEFAULT_TYPE):
     ret = await set_sheet(update, context)
     if(ret == -1):
         return SHEET_STATE
+    await update.message.reply_text("Last step! Now send me your google email address to share with you the sheet that will store your words (e.g. namesurname@gmail.com)")
+    return EMAIL_STATE
+
+async def ask_email(update, context: ContextTypes.DEFAULT_TYPE):
+    # Ask for google email
+    ret = await set_email(update, context)
+    if(ret == -1):
+        return EMAIL_STATE
     await update.message.reply_text("Great! Now you can start to translate words, just send me a message and I'll reply with the translation while writing it on your sheet to keep track of it.")
     return ConversationHandler.END
 
@@ -246,9 +284,18 @@ async def get_sheet(update, context: ContextTypes.DEFAULT_TYPE):
         logging.debug("get_sheet called: sheet link not set")
     return ConversationHandler.END
 
+async def get_email(update, context: ContextTypes.DEFAULT_TYPE):
+    if(email is not None):
+        await update.message.reply_text("Email address set to: " + email)
+        logging.debug("get_email called: " + email)
+    else:
+        await update.message.reply_text("Email address not set")
+        logging.debug("get_email called: email address not set")
+    return ConversationHandler.END
+
 async def cancel(update, context: ContextTypes.DEFAULT_TYPE):
     # Quit conversation
-    await update.message.reply_text('Guided config ended, you can now use /set_lang and /set_sheet to manually set LexiBot')
+    await update.message.reply_text('Guided config ended, you can now use /set_lang and /set_sheet and /set_email to manually set LexiBot')
     logging.debug("/cancel called: Guided config ended") #TODO: perchè non viene eseguito?
     return ConversationHandler.END
 
@@ -268,6 +315,7 @@ def main() -> None:
         states={
             LANG_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_lang)],
             SHEET_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_sheet)],
+            EMAIL_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_email)],
         },
 
         fallbacks=[CommandHandler("cancel", cancel)]
@@ -280,6 +328,7 @@ def main() -> None:
     application.add_handler(CommandHandler("get_target_lang", get_target_lang))
     application.add_handler(CommandHandler("get_mother_lang", get_mother_lang))
     application.add_handler(CommandHandler("get_sheet", get_sheet))
+    application.add_handler(CommandHandler("get_email", get_email))
     # translate message
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, translate))
     # unknown command handler, must be added last
@@ -291,6 +340,6 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-
+# TODO: fare in modo che inviando il comando /set_lang ecc senza argomenti chieda di inserirli al messaggio seguente
 # TODO: fare comando che restituisce tutti i record della sheet e un comando che restituisce parola randomica da studiare
 # TODO: togliere il token prima di committare
