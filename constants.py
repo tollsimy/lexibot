@@ -4,6 +4,7 @@ Send /start - start and configure the bot.
 Send /help - get this message.
 Send /set_lang [language_to_learn] to [mothertongue] - set the language (e.g. /set_lang it to en).
 Send /set_sheet [link] - set the google sheet link (e.g. /set_sheet https://docs.google.com/spreadsheets/d/example).
+Send /set_email [your_email@gmail.com] - set the google email address to whom the sheet will be shared.
 After setting the language and the sheet, send whatever you want to translate to the bot and it will append the translation to the sheet.
 The intended use of the LexiBot is to translate a new words whenever you encounter one and then store them all in a google sheet along with the original words in order to study and memorize them in a clever way.
 """
