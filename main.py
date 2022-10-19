@@ -2,6 +2,7 @@
 import logging
 import constants as const
 from telegram import __version__ as TG_VER
+import telegram as telegram
 import sys 
 import os
 sys.path.append(os.getcwd() + os.path.abspath("/scripts-and-automations/reverso-script"))
@@ -37,8 +38,9 @@ logger = logging.getLogger(__name__)
 
 # --------------------------------- Global vars ------------------------------ #
 
-sheet_link = None
+sheet_id = None
 sheet_name = None
+sheet_action = None
 target_lang = None
 mother_lang = None
 reverso = None
@@ -47,9 +49,12 @@ email = None
 
 # Conversation FSM states
 LANG_STATE = 0
-SHEET_STATE = 1
-EMAIL_STATE = 2
+EMAIL_STATE = 1
+SHEET_STATE = 2
 
+# Sheet access methods
+OPEN_BY_NAME = 0
+OPEN_BY_ID = 1
 # ----------------------------- Command Handlers ----------------------------- #
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,7 +124,8 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return 0
 
 async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-
+    
+    global email
     msg = update.message.text.lower()
 
     try:
@@ -148,23 +154,44 @@ async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     #Set sheet link
-    global sheet_link
+    global sheet_id
     global sheet_name
     global gsheet
+    global sheet_action
 
+    msg = update.message.text
+
+    #TODO: handle uppercase letters in "create" or "resume"
     try:
-        if("/set_sheet" in update.message.text):
-            sheet_link = update.message.text.split("/set_sheet ")[1]
+        if("/set_sheet" in msg):
+            if "create" in msg.lower():
+                sheet_name = msg.split("/set_sheet create ")[1]
+                sheet_action = OPEN_BY_NAME
+                logger.debug("Create new sheet: " + sheet_name)
+            elif "resume" in msg.lower():
+                sheet_id = msg.split("/set_sheet resume ")[1]
+                sheet_action = OPEN_BY_ID
+                logger.debug("Resume sheet: " + sheet_id)
+            else:
+                raise Exception
         else:
-            sheet_link = update.message.text
-        logger.debug("Sheet set to " + sheet_link)
+            if "create" in msg.lower():
+                sheet_name = msg.split("create ")[1]
+                sheet_action = OPEN_BY_NAME
+                logger.debug("Create new sheet: " + sheet_name)
+            elif "resume" in msg.lower():
+                sheet_id = msg.split("resume ")[1]
+                sheet_action = OPEN_BY_ID
+                logger.debug("Resume sheet: " + sheet_id)
+            else:
+                raise Exception
     except:
         # If we are here from the command handler, message is this one
         if("/set_sheet" in update.message.text):
-            await update.message.reply_text("Invalid command, use /set_sheet [link]")
+            await update.message.reply_text("Invalid command, use /set_sheet create [sheet_name] or /set_sheet resume [sheet_id]")
         # If we are here from the conversation handler, message is different
         else:
-            await update.message.reply_text("Link not valid, retry")
+            await update.message.reply_text("Invalid input, send create [sheet_name] or resume [sheet_id]")
         logger.debug("/set_sheet: Invalid command")
         return -1
 
@@ -178,9 +205,30 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     #TODO
     if 1:
+        success = False
         sheet_name = "LexiBot - learn new vocabularies"
-        sheet_link = gsheet.create_sheet(sheet_name)
-        logger.debug("Sheet created correctly")
+        if sheet_action == OPEN_BY_NAME:
+            gsheet.create_sheet(sheet_name)
+            logger.debug(f"Created Sheet {gsheet.sh.id}")
+            await update.message.reply_text(f"Created Sheet named: {sheet_name}, id:`{gsheet.sh.id}`", parse_mode=telegram.constants.ParseMode.MARKDOWN)
+            success = True
+        elif sheet_action == OPEN_BY_ID:
+            if gsheet.is_a_g_sheet("key", sheet_id):
+                logger.debug(f"Sheet {sheet_id} is a valid google sheet")
+                success = True
+            else:
+                logger.debug(f"Sheet {sheet_id} is not a valid google sheet")
+        if success:
+            if email is not None:
+                gsheet.sh.share(email, perm_type='user', role='writer')
+                logger.debug("Sheet created correctly")
+            else:
+                await update.message.reply_text("Please insert an email first")
+                logger.debug("Please insert an email first")
+        #await update.message.reply_text(f"")
+        
+        #logger.debug(sheet_id)
+        
     else:
         #TODO
         pass
@@ -202,14 +250,18 @@ async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Please set language with /set_lang")
         logger.debug("Language not set")
         return -1
-    elif (sheet_link is None):
+    elif (gsheet.sh is None):
         await update.message.reply_text("Please set google sheet link with /set_sheet")
         logger.debug("Sheet link not set")
+        return -1
+    elif (email is None):
+        await update.message.reply_text("Please set your google email address with /set_email")
+        logger.debug("Email address not set")
         return -1
     
     trad = reverso.get_separated_translations(update.message.text)
     logger.debug("Translation done")
-    gsheet.write_on_sheet("title", sheet_name, update.message.text, trad)
+    gsheet.write_on_sheet("key", gsheet.sh.id, update.message.text, trad)
     logger.debug("Written on sheet")
     await update.message.reply_text("Done! Translation: " + trad)
     return 0
@@ -238,15 +290,7 @@ async def ask_lang(update, context: ContextTypes.DEFAULT_TYPE):
     ret = await set_lang(update, context)
     if(ret == -1):
         return LANG_STATE
-    await update.message.reply_text("Wonderful! Now send me the link to your google sheet document (e.g. https://docs.google.com/spreadsheets/d/blablabla)")  
-    return SHEET_STATE
-
-async def ask_sheet(update, context: ContextTypes.DEFAULT_TYPE):
-    # Ask for sheet link
-    ret = await set_sheet(update, context)
-    if(ret == -1):
-        return SHEET_STATE
-    await update.message.reply_text("Last step! Now send me your google email address to share with you the sheet that will store your words (e.g. namesurname@gmail.com)")
+    await update.message.reply_text("Wonderful! Now send me your google email address to share with you the sheet that will store your words (e.g. namesurname@gmail.com)")
     return EMAIL_STATE
 
 async def ask_email(update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,6 +298,14 @@ async def ask_email(update, context: ContextTypes.DEFAULT_TYPE):
     ret = await set_email(update, context)
     if(ret == -1):
         return EMAIL_STATE
+    await update.message.reply_text("Last step! Now send me the `create [sheet_name]` or `resume [sheet_id]` to respectively create a new google sheet or resume an existing one.")  
+    return SHEET_STATE
+
+async def ask_sheet(update, context: ContextTypes.DEFAULT_TYPE):
+    # Ask for sheet link
+    ret = await set_sheet(update, context)
+    if(ret == -1):
+        return SHEET_STATE
     await update.message.reply_text("Great! Now you can start to translate words, just send me a message and I'll reply with the translation while writing it on your sheet to keep track of it.")
     return ConversationHandler.END
 
@@ -276,9 +328,9 @@ async def get_mother_lang(update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def get_sheet(update, context: ContextTypes.DEFAULT_TYPE):
-    if(sheet_link is not None):
-        await update.message.reply_text("Sheet link set to: " + sheet_link)
-        logging.debug("get_sheet called: " + sheet_link)
+    if(sheet_id is not None):
+        await update.message.reply_text("Sheet link set to: " + sheet_id)
+        logging.debug("get_sheet called: " + sheet_id)
     else:
         await update.message.reply_text("Sheet link not set")
         logging.debug("get_sheet called: sheet link not set")
@@ -314,8 +366,8 @@ def main() -> None:
 
         states={
             LANG_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_lang)],
-            SHEET_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_sheet)],
             EMAIL_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_email)],
+            SHEET_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_sheet)],
         },
 
         fallbacks=[CommandHandler("cancel", cancel)]
