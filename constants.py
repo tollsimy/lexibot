@@ -60,7 +60,7 @@ lang_dict={
     #TODO: don't know if they are all supported by reverso
 }
 
-scripts_path = os.getcwd() + os.path.abspath("/scripts-and-automations/reverso-script")
+scripts_path = os.getcwd() + os.path.abspath("/scripts-and-automations/reverso-script/api/")
 
 token = "keys/lexibot_token.txt"
 gservice_acc = "keys/lexibot_gservice_account.json"
@@ -79,7 +79,9 @@ The intended use of the LexiBot is to translate a new words whenever you encount
 welcome_msg = """
 Hi, I'm LexiBot, I can help you to learn vocabulary in a foreign language.
 The intended use of the LexiBot is to translate a new words whenever you encounter one and then store them all in a google sheet along with the original words in order to study and memorize them in a clever way.
-Send /cancel to stop conversation and manually set LexiBot.
+Send /cancel to stop conversation and manually set LexiBot.\n
+If you are not new to Lexibot you can restore your worksheet typing 'resume [url]', remember that the sheet must be
+shared with everyone who has the link!
 """
 guided_msg_lang = """
 First of all, you need to tell me which language you want to learn and which is your mothertongue.

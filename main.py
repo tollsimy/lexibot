@@ -1,6 +1,9 @@
 # -------------------------- Imports and basic stuff ------------------------- #
+from asyncio import FIRST_COMPLETED
 import logging
 import re
+
+from parso import parse
 import constants as const
 from telegram import __version__ as TG_VER
 import telegram as telegram
@@ -44,25 +47,28 @@ sheet_action = None
 target_lang = None
 mother_lang = None
 email = None
-
+is_resuming = False
+is_starting_phase = False
 # Class instances
 reverso = None
 gsheet = None
 
 # Conversation FSM states
-LANG_STATE = 0
-EMAIL_STATE = 1
-SHEET_STATE = 2
+FIRST_TIME_STATE = 8
+LANG_STATE = 16
+EMAIL_STATE = 32
+SHEET_STATE = 64
 
+# CONVERSATION END CMD
+END_CONVERSATION = -3
 # Sheet access methods
 OPEN_BY_NAME = 0
-OPEN_BY_ID = 1
+OPEN_BY_URL = 1
 
 # ----------------------------- Utility functions ----------------------------- #
 
-#TODO
-def printall(gsheet):
-    pass
+def parse_header(sheet_headers: list):
+    return [const.lang_dict[sheet_headers[0].lower()],const.lang_dict[sheet_headers[1].lower()]]
 
 # ----------------------------- Command Handlers ----------------------------- #
 
@@ -98,10 +104,10 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     except:
         # If we are here from the command handler, message is this one
         if("/set_lang" in update.message.text):
-            await update.message.reply_text("Invalid command, use /set_lang [language_to_learn] to [mothertongue]")
+            await update.message.reply_text("A)Invalid command, use /set_lang [language_to_learn] to [mothertongue]")
         # If we are here from the conversation handler, message is different
         else:
-            await update.message.reply_text("Invalid format, use [language_to_learn] to [mothertongue]")
+            await update.message.reply_text("B)Invalid format, use [language_to_learn] to [mothertongue]")
         logger.debug("/set_lang: Invalid command")
         return -1
 
@@ -171,6 +177,7 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     global sheet_name
     global gsheet
     global sheet_action
+    global is_resuming
 
     msg = update.message.text
 
@@ -183,7 +190,7 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.debug("Create new sheet: " + sheet_name)
             elif ("resume" in msg.lower()):
                 sheet_id = re.split("/set_sheet resume ", msg, flags=re.IGNORECASE)[1]
-                sheet_action = OPEN_BY_ID
+                sheet_action = OPEN_BY_URL
                 logger.debug("Resume sheet: " + sheet_id)
             else:
                 raise SyntaxError
@@ -195,7 +202,8 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.debug("Create new sheet: " + sheet_name)
             elif ("resume" in msg.lower()):
                 sheet_id = re.split("resume ", msg, flags=re.IGNORECASE)[1]
-                sheet_action = OPEN_BY_ID
+                sheet_action = OPEN_BY_URL
+                is_resuming = True
                 logger.debug("Resume sheet: " + sheet_id)
             else:
                 raise SyntaxError
@@ -219,23 +227,27 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Error while connecting to google service, please contact the bot maintainers [Tollsimy](t.me/Tollsimy) and/or [Cannox227](t.me/Cannox227).", parse_mode=telegram.constants.ParseMode.MARKDOWN)
         return -2
 
-    if email is None:
+    if email is None and is_resuming == False:
         await update.message.reply_text("Please insert an email first")
         logger.debug("Please insert an email first")
         return -1
 
     if sheet_action == OPEN_BY_NAME:
         gsheet.create_sheet(sheet_name)
+        gsheet.write_custom_row([mother_lang, target_lang, "Meaning"])
         logger.debug(f"Created Sheet {gsheet.sh.id}")
         gsheet.sh.share(email, perm_type='user', role='writer')
         logger.debug("Sheet shared correctly")
-        await update.message.reply_text(f"Created Sheet named: {sheet_name}, id:`{gsheet.sh.id}`", parse_mode=telegram.constants.ParseMode.MARKDOWN)
-    elif sheet_action == OPEN_BY_ID:
-        if gsheet.is_a_g_sheet("key", sheet_id):
+        await update.message.reply_text(f"Created Sheet named: {sheet_name},\nid: {gsheet.get_sheet_id()},\nurl: {gsheet.get_sheet_url()}")
+        await update.message.reply_text(const.guided_msg_complete)
+    elif sheet_action == OPEN_BY_URL:
+        if gsheet.is_a_g_sheet("url", sheet_id):
             logger.debug(f"Sheet {sheet_id} is a valid google sheet")
-            gsheet.sh.share(email, perm_type='user', role='writer')
-            logger.debug("Sheet shared correctly")
-            await update.message.reply_text(f"Sheet id:`{gsheet.sh.id}` resumed correctly!", parse_mode=telegram.constants.ParseMode.MARKDOWN)
+            if not is_resuming:
+                gsheet.sh.share(email, perm_type='user', role='writer')
+                logger.debug("Sheet shared correctly")
+            await update.message.reply_text(f"Sheet url {gsheet.get_sheet_url()} resumed correctly!\nNow you can just type the words you want to translate and I will translate for you add the results to the sheet.")
+            return END_CONVERSATION
         else:
             logger.debug(f"Sheet {sheet_id} is not a valid google sheet")
             await update.message.reply_text("sheet_id not valid, please retry")
@@ -244,23 +256,35 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # Handler for whatever text that is not a command
 async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global target_lang
+    global mother_lang
+    global reverso
     #Reply with the translated the user message
     if(target_lang is None or mother_lang is None):
+        if(gsheet.sh is not None):
+            langs = parse_header(gsheet.get_sheet_header())
+            target_lang = langs[0]
+            mother_lang = langs[1]
+            await translate(update, context)
         await update.message.reply_text("Please set language with /set_lang")
         logger.debug("Language not set")
         return -1
-    elif (gsheet.sh is None):
+    elif (gsheet.sh is None and is_resuming == False):
         await update.message.reply_text("Please set google sheet link with /set_sheet")
         logger.debug("Sheet link not set")
         return -1
-    elif (email is None):
+    elif (email is None and is_resuming == False):
         await update.message.reply_text("Please set your google email address with /set_email")
         logger.debug("Email address not set")
         return -1
     
+    logger.debug("Translate message: " + update.message.text)
+    if(reverso is None):
+        reverso = Reverso_Api(target_lang, mother_lang)
+        logger.debug("Started reverso")
     trad = reverso.get_separated_translations(update.message.text)
     logger.debug("Translation done")
-    gsheet.write_on_sheet("key", gsheet.sh.id, update.message.text, trad)
+    gsheet.write_on_sheet(update.message.text, trad)
     logger.debug("Written on sheet")
     await update.message.reply_text("Done! Translation: " + trad)
     return 0
@@ -298,11 +322,26 @@ async def get_email(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.debug("get_email called: email address not set")
 
 async def random(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if(gsheet is not None):
-        gsheet.
+    if(gsheet.sh is not None):
+        parsed_row = gsheet.get_random_row()
+        # if you want just the whole row comment the following line
+        parsed_row = parsed_row.split(",")[0]
+        logger.debug(f"Parsed random row: {parsed_row}")
+        if parsed_row is None or parsed_row == "":
+           await update.message.reply_text("No data found") 
+        else:
+            await update.message.reply_text(parsed_row)
+        logging.debug("printall called")
 
 async def printall(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    
+    if(gsheet.sh is not None):
+        parsed_rows = gsheet.get_all_records_parsed()
+        logger.debug(f"Parsed rows: {parsed_rows}")
+        if parsed_rows is None or parsed_rows == "":
+           await update.message.reply_text("No data found") 
+        else:
+            await update.message.reply_text(parsed_rows)
+        logging.debug("printall called")
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Command not found, visit /help")
@@ -316,11 +355,40 @@ async def start_main_conv(update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(const.welcome_msg)
     logging.debug("Start main conversation")
     await update.message.reply_text(const.guided_msg_lang)
-    return LANG_STATE
+    return FIRST_TIME_STATE
+
+async def ask_first_time(update, context: ContextTypes.DEFAULT_TYPE):
+    global is_starting_phase
+    # Ask the way to use for the first time to the user:
+    logger.debug("Ask first time state called")
+    msg = update.message.text
+    logger.debug(f"First time msg {msg}")
+    msg_chunks = msg.split(" ")
+    cmd = msg_chunks[0]
+    if cmd == "resume":
+        ret = await set_sheet(update, context)
+        logger.debug(f"Set sheet ret:{ret}")
+        if (ret == -1 or ret == -2):
+            logger.debug("First time state sheet error")
+            return FIRST_TIME_STATE
+        else:
+            logger.debug("First time state closing conversation")
+            return ConversationHandler.END
+    elif msg_chunks[1]=="to":
+        if await ask_lang(update, context) == EMAIL_STATE:
+            is_starting_phase = True
+            return EMAIL_STATE
+    else:
+        logger.debug("Invalid cmd")
+        await update.message.reply_text("Invalid command, please try again")
+        return FIRST_TIME_STATE
+
 
 async def ask_lang(update, context: ContextTypes.DEFAULT_TYPE):
     # Ask for language
+    logger.debug("Ask lang state called")
     ret = await set_lang(update, context)
+    logger.debug(f"Ask lang ret: {ret}")
     if(ret == -1):
         return LANG_STATE
     await update.message.reply_text(const.guided_msg_email)
@@ -328,6 +396,7 @@ async def ask_lang(update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_email(update, context: ContextTypes.DEFAULT_TYPE):
     # Ask for google email
+    logger.debug("Ask email")
     ret = await set_email(update, context)
     if(ret == -1):
         return EMAIL_STATE
@@ -336,13 +405,16 @@ async def ask_email(update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_sheet(update, context: ContextTypes.DEFAULT_TYPE):
     # Ask for sheet link
+    
     ret = await set_sheet(update, context)
-    if(ret == -1):
-        return SHEET_STATE
-    elif(ret == -2):
+    if (ret == END_CONVERSATION or ret == -2):
+        if(ret == END_CONVERSATION):
+            await update.message.reply_text(const.guided_msg_complete)
         return ConversationHandler.END
-    await update.message.reply_text(const.guided_msg_complete)
-    return ConversationHandler.END
+    elif(ret == -1):
+        return SHEET_STATE
+    else:
+        return ConversationHandler.END
 
 async def cancel(update, context: ContextTypes.DEFAULT_TYPE):
     # Quit conversation
@@ -365,6 +437,7 @@ def main() -> None:
         entry_points=[CommandHandler('start', start_main_conv)],
         # States are Lang setup, Email setupn and GSheet setup
         states={
+            FIRST_TIME_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_first_time)],
             LANG_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_lang)],
             EMAIL_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_email)],
             SHEET_STATE : [MessageHandler(filters.TEXT & ~filters.Command(['/cancel']), ask_sheet)],
@@ -400,4 +473,3 @@ if __name__ == "__main__":
 # TODO: gestire spazi multipli nei comandi -> regex?
 # TODO: Aggiungere debug msg alla console con log level appropriati
 # TODO: fare in modo che inviando ad esempio il comando /set_lang ecc senza argomenti chieda di inserirli al messaggio seguente -> conv per ogni comando?
-# TODO: fare comando che restituisce tutti i record della sheet e un comando che restituisce parola randomica da studiare
