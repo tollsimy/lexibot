@@ -12,6 +12,7 @@ httpcore==0.15.0
 httpx==0.23.0
 idna==3.4
 oauthlib==3.2.2
+parso==0.8.3
 pyasn1==0.4.8
 pyasn1-modules==0.2.8
 python-telegram-bot==20.0a4
