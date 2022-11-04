@@ -466,7 +466,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     # Run the bot
-    application.run_polling()
+    application.start_webhook(listen="0.0.0.0", port=PORT, url_path=TOKEN)
+    application.bot.setWebhook('https://the-real-lexibot.herokuapp.com/' + TOKEN)
 
 if __name__ == "__main__":
     main()
