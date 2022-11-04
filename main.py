@@ -7,14 +7,16 @@ from parso import parse
 import constants as const
 from telegram import __version__ as TG_VER
 import telegram as telegram
-import sys 
+import sys
+import json
 sys.path.append(const.scripts_path)
 from reverso_wrapped_api import *
 from gsheets_wrapped_api import *
+from os import environ
 
-TOKEN = None
-with open(const.token) as f:
-    TOKEN = f.read().strip()
+PORT = int(environ.get('PORT'))
+TOKEN = environ.get('TOKEN')
+GSERVICE_ACC = json.loads(environ.get('GSERVICE_ACC'))
 
 try:
     from telegram import __version_info__
@@ -220,7 +222,7 @@ async def set_sheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Start gsheet
     try:
-        gsheet = Gsheet_Api(const.gservice_acc)
+        gsheet = Gsheet_Api(GSERVICE_ACC, "dict")
         logger.debug("Gsheet service account authorized correctly")
     except:
         logger.exception("Error while connecting to google service account")

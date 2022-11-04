@@ -62,9 +62,6 @@ lang_dict={
 
 scripts_path = os.getcwd() + os.path.abspath("/scripts-and-automations/reverso-script/api/")
 
-token = "keys/lexibot_token.txt"
-gservice_acc = "keys/lexibot_gservice_account.json"
-
 help_msg = """
 Welcome, the LexiBox help message is here to guide you!
 Send /start - start and configure the bot.
