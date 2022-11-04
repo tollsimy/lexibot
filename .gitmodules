@@ -1,3 +1,4 @@
+
 [submodule "scripts-and-automations"]
 	path = scripts-and-automations
-	url = git@github.com:cannox227/scripts-and-automations.git
+	url = git@github.com:tollsimy/scripts-and-automations.git
